@@ -1,5 +1,6 @@
 # Wazuh SIEM + SOAR Deployment + DDoS Attack Simulation
-> Tugas Kelompok — Keamanan Jaringan  
+
+> Tugas Kelompok — Keamanan Jaringan
 > Institut Teknologi Sepuluh Nopember (ITS) — 2026
 
 ---
@@ -9,8 +10,23 @@
 | Nama | NRP | Peran |
 |------|-----|-------|
 | Tiara Fatimah Azzahra | 5027241090 | Manager Admin (Wazuh Manager) |
-| Agent Operator 1 (vm-agent-1) — Attacker |
+| `TODO: isi nama` | `TODO: isi NRP` | Agent Operator 1 (vm-agent-1) — Attacker |
 | Diva Aulia Rosa | 5027241005 | Agent Operator 2 (vm-agent-02) — Korban |
+
+---
+
+## Daftar Isi
+
+1. [Deskripsi Proyek](#deskripsi-proyek)
+2. [Konsep SIEM vs SOAR](#konsep-siem-vs-soar)
+3. [Arsitektur Sistem](#arsitektur-sistem)
+4. [Spesifikasi Infrastruktur](#spesifikasi-infrastruktur)
+5. [Deployment SIEM — Point 1](#deployment-siem--point-1)
+6. [SOAR Implementation — Automated DDoS Mitigation](#soar-implementation--automated-ddos-mitigation)
+7. [DDoS Attack Scenario + SOAR Response — Point 2](#ddos-attack-scenario--soar-response--point-2)
+8. [Logging Density & Distribution — Point 3](#logging-density--distribution--point-3)
+9. [Hasil dan Kesimpulan](#hasil-dan-kesimpulan)
+10. [Referensi](#referensi)
 
 ---
 
@@ -18,9 +34,11 @@
 
 Proyek ini mengimplementasikan **Wazuh SIEM (Security Information and Event Management)** yang diperkuat dengan kemampuan **SOAR (Security Orchestration, Automation and Response)** pada infrastruktur cloud **Microsoft Azure for Students** untuk mendeteksi dan memitigasi serangan **DDoS (Distributed Denial of Service)** secara otomatis.
 
+Selain Active Response bawaan Wazuh, tim juga membangun layer orkestrasi tambahan menggunakan **Shuffler.io** sebagai SOAR platform — alert dari Wazuh dikirim via webhook, dievaluasi (whitelist & threshold), lalu memicu mitigation API dan dicatat kembali ke Wazuh secara otomatis.
+
 ### Tujuan
 1. Maintain SIEM framework (Wazuh) sebagai core architectural foundation
-2. Incorporate SOAR capabilities untuk automated detection dan mitigation DDoS
+2. Incorporate SOAR capabilities (Wazuh Active Response + Shuffler.io) untuk automated detection dan mitigation DDoS
 3. Membuat skenario DDoS HTTP Flood sebagai Proof of Concept (PoC)
 4. Mengelola logging density dan distribusi log antar agent
 
@@ -47,7 +65,7 @@ SOAR = SIEM + kemampuan BERTINDAK OTOMATIS
 Tugas SOAR:
 → Semua yang SIEM lakukan, DITAMBAH:
 → Otomatis block IP penyerang
-→ Otomatis jalankan script mitigasi
+→ Otomatis jalankan script/API mitigasi
 → Otomatis catat insiden ke log
 → Otomatis unblock setelah timeout
 ```
@@ -58,9 +76,10 @@ Tugas SOAR:
                     ↓
 2. ANALYZE → Rule 100200 trigger (level 10)
                     ↓
-3. RESPOND → Script ddos-mitigation.sh otomatis:
-             - Block IP penyerang (iptables DROP)
-             - Catat insiden ke log
+3. RESPOND → (a) ddos-mitigation.sh (Active Response lokal di Manager)
+             (b) Workflow Shuffler.io (orkestrasi cloud via webhook)
+             - Block IP penyerang (iptables DROP / mitigation API)
+             - Catat insiden ke log & ke Wazuh
                     ↓
 4. RECOVER → Setelah 600 detik, auto-unblock IP
 ```
@@ -95,6 +114,7 @@ Tugas SOAR:
 │  │  ✅ Active Response Engine                   │       │
 │  │  ✅ ddos-mitigation.sh script                │       │
 │  │  ✅ Auto iptables DROP/ACCEPT                │       │
+│  │  ✅ Webhook → Shuffler.io workflow            │       │
 │  └──────────────┬───────────────────────────────┘       │
 │                 │ Port 1514/1515 TCP                     │
 │           ┌─────┴──────┐                               │
@@ -108,7 +128,17 @@ Tugas SOAR:
 │         │                ▲                             │
 │         └── HTTP Flood ──┘                             │
 │           ab -n 10000 -c 100 http://10.0.0.6/          │
-└─────────────────────────────────────────────────────────┘
+└───────────────────────────┬───────────────────────────┘
+                            │ webhook alert (JSON)
+                            ▼
+                ┌───────────────────────┐
+                │     Shuffler.io       │
+                │  SOAR-DDoS-Mitigation │
+                │  - Check whitelist    │
+                │  - Evaluate threshold │
+                │  - Call mitigation API│
+                │  - Record back→Wazuh  │
+                └───────────────────────┘
 ```
 
 ---
@@ -121,10 +151,11 @@ Tugas SOAR:
 | vm-agent-1 | Wazuh Agent + Attacker | B2ats_v2 | 2 | 1 GiB | 57.158.24.143 | 10.0.0.5 | Active |
 | vm-agent-02 | Wazuh Agent + Target | B2ats_v2 | 2 | 1 GiB | 20.2.82.117 | 10.0.0.6 | Active |
 
-**Platform:** Microsoft Azure for Students ($100 kredit)  
-**OS:** Ubuntu Server 22.04 LTS  
-**Wazuh Version:** 4.7.5  
-**Region:** East Asia  
+**Platform:** Microsoft Azure for Students ($100 kredit)
+**OS:** Ubuntu Server 22.04 LTS
+**Wazuh Version:** 4.7.5
+**Region:** East Asia
+**SOAR Orchestration:** Shuffler.io (cloud)
 
 ---
 
@@ -241,21 +272,24 @@ Agents Coverage: 100%
 
 ## SOAR Implementation — Automated DDoS Mitigation
 
-### Apa yang Diimplementasikan
-
 ```
-Wazuh Active Response + Custom Script = SOAR
+Wazuh Active Response + Custom Script + Shuffler.io = SOAR
 
 Saat DDoS terdeteksi:
-→ OTOMATIS block IP penyerang (iptables)
-→ OTOMATIS catat insiden ke log
+→ OTOMATIS block IP penyerang (iptables / mitigation API)
+→ OTOMATIS catat insiden ke log & ke Wazuh
 → OTOMATIS unblock setelah 10 menit
 → Tanpa intervensi manusia!
 ```
 
----
+Implementasi SOAR pada proyek ini terdiri dari **dua layer** yang saling melengkapi:
 
-### Step 1 — Buat Custom SOAR Script
+- **Layer 1 — Wazuh Active Response (lokal)**: script `ddos-mitigation.sh` yang dijalankan langsung oleh Wazuh Manager begitu rule 100200 ter-trigger.
+- **Layer 2 — Shuffler.io Workflow (cloud orchestration)**: alert diteruskan via webhook ke workflow SOAR yang mengevaluasi whitelist & threshold sebelum memanggil mitigation API, lalu mencatat hasilnya kembali ke Wazuh.
+
+### Layer 1 — Wazuh Active Response Script
+
+#### Step 1 — Buat Custom SOAR Script
 
 ```bash
 # Di Manager
@@ -332,9 +366,7 @@ fi
 exit 0
 ```
 
----
-
-### Step 2 — Set Permission Script
+#### Step 2 — Set Permission Script
 
 ```bash
 # Di Manager
@@ -342,9 +374,7 @@ sudo chmod 750 /var/ossec/active-response/bin/ddos-mitigation.sh
 sudo chown root:wazuh /var/ossec/active-response/bin/ddos-mitigation.sh
 ```
 
----
-
-### Step 3 — Daftarkan ke Wazuh
+#### Step 3 — Daftarkan ke Wazuh
 
 ```bash
 # Di Manager
@@ -376,9 +406,7 @@ Tambahkan active-response:
 sudo systemctl restart wazuh-manager
 ```
 
----
-
-### Step 4 — DDoS Detection Rules
+#### Step 4 — DDoS Detection Rules
 
 File: `/var/ossec/etc/rules/ddos_rules.xml`
 
@@ -397,6 +425,33 @@ File: `/var/ossec/etc/rules/ddos_rules.xml`
 
 ---
 
+### Layer 2 — Shuffler.io Workflow Orchestration
+
+Selain Active Response lokal, alert Wazuh juga diteruskan ke workflow **`SOAR-DDoS-Mitigation-Wazuh`** di [Shuffler.io](https://shuffler.io) agar proses evaluasi dan mitigasi bisa diorkestrasi secara terpusat, dicatat, dan diaudit historinya.
+
+![Diagram workflow SOAR-DDoS-Mitigation-Wazuh di Shuffler.io](workflow-diagram.jpeg)
+*Diagram alur workflow SOAR-DDoS-Mitigation-Wazuh di Shuffler.io — dari webhook alert Wazuh hingga pemanggilan mitigation API.*
+
+**Alur node dalam workflow:**
+
+| # | Node | Fungsi |
+|---|------|--------|
+| 0 | `Wazuh ddos alert` | Webhook trigger yang menerima JSON alert dari Wazuh |
+| 1 | `Extract fields` | Step Python yang mengekstrak `src_ip`, `dst_ip`, `rule_id`, `packet_rate`, `connection_count`, `agent.name`, `timestamp`, dan `alert_id` dari payload webhook |
+| 2 | `Check whitelist` | Membandingkan `src_ip` terhadap whitelist tersimpan, menghasilkan boolean `allow_mitigation` |
+| 3 | `Evaluate threshold` | Membandingkan `packet_rate` dan `connection_count` terhadap threshold yang dikonfigurasi, menghasilkan boolean `threshold_triggered` |
+| 4 | `Build payload` | Jika `allow_mitigation` **dan** `threshold_triggered` bernilai true, membangun payload JSON mitigasi dan menetapkan `should_mitigate = true`; jika tidak, `should_mitigate = false` |
+| 5 | `Call mitigation api` | POST `mitigate_payload` ke `https://<MITIGATION_API_BASE>/v1/blocks` dengan header Authorization — hanya dipanggil jika `should_mitigate = true` |
+| 6 | `Record wazuh action` | POST hasil mitigasi kembali ke Wazuh di `https://<WAZUH_API_BASE>/alerts/<alert_id>/actions`, berisi `action`, `ip`, `mitigation_response`, `timestamp` |
+| 7 | `Notify incident dashboard` | (Opsional) POST notifikasi ke dashboard insiden internal berisi `title`, `ip`, `rule_id`, `mitigation_response` |
+
+Semua nilai konfigurasi (`<MITIGATION_API_BASE>`, `<WAZUH_API_BASE>`, API key, whitelist, threshold, durasi block, endpoint notifikasi) bersifat placeholder dan diganti dengan nilai konfigurasi sebenarnya saat deployment.
+
+![Workflow Run Debugger Shuffler.io](workflowrundebuggerjpeg.jpeg)
+*Riwayat eksekusi workflow `SOAR-DDoS-Mitigation-Wazuh` pada Workflow Run Debugger Shuffler.io — status `FINISHED` dengan kombinasi node yang dijalankan (4) dan diskip (3) sesuai hasil evaluasi whitelist & threshold pada setiap alert yang masuk.*
+
+---
+
 ## DDoS Attack Scenario + SOAR Response — Point 2
 
 ### Skenario
@@ -405,7 +460,7 @@ File: `/var/ossec/etc/rules/ddos_rules.xml`
 ATTACKER : vm-agent-1  (IP: 10.0.0.5)
 TARGET   : vm-agent-02 (IP: 10.0.0.6)
 METODE   : HTTP Flood (ApacheBench)
-SOAR     : Auto-block via ddos-mitigation.sh
+SOAR     : Auto-block via ddos-mitigation.sh + Shuffler.io workflow
 ```
 
 ---
@@ -471,13 +526,8 @@ ab -n 10000 -c 100 http://10.0.0.6/
 | `-c 100` | 100 request bersamaan |
 | `http://10.0.0.6/` | Target nginx Agent-02 |
 
-**Output:**
-```
-Completed 1000 requests
-Completed 2000 requests
-...
-Total of 8781 requests completed
-```
+![Output ApacheBench HTTP Flood](dokumenatsi.jpeg)
+*Output ApacheBench (`ab`) saat menjalankan HTTP Flood dari vm-agent-1 ke vm-agent-02 — 10.000 request dengan concurrency 100 selesai dalam 26,996 detik, rata-rata 370,43 request/detik, 0 failed requests.*
 
 ---
 
@@ -510,6 +560,9 @@ Status       : IP 10.0.0.5 UNBLOCKED
 =======================================
 ```
 
+![Log alerts.json dan Active Response Wazuh](Dokumentasi.jpeg)
+*Potongan log `alerts.json` di Wazuh Manager yang menampilkan event Active Response — mencatat aksi block otomatis terhadap IP penyerang sebagai bagian dari respons SOAR.*
+
 ---
 
 ### Verifikasi SOAR — iptables Block
@@ -536,6 +589,9 @@ sudo iptables -L INPUT -n | grep DROP
 | Target | vm-agent-02 |
 | SOAR Response | Auto-block dalam detik |
 
+![Dashboard Wazuh - Security Events Overview](wazuhwebjpeg.jpeg)
+*Dashboard Wazuh — Security Events overview menampilkan Total Alerts 30.209, lonjakan pada grafik Alert Level Evolution sekitar jam 08:00–09:00, serta distribusi Top MITRE ATT&CK Techniques (Password Guessing, SSH, Brute Force) dan Top 5 Agents.*
+
 ---
 
 ### Alur Lengkap SIEM + SOAR
@@ -557,7 +613,8 @@ sudo iptables -L INPUT -n | grep DROP
 │  3. RESPOND (SOAR)                          │
 │     ddos-mitigation.sh dijalankan otomatis  │
 │     iptables DROP untuk IP 10.0.0.5         │
-│     Insiden dicatat ke log                  │
+│     Webhook → Shuffler.io workflow          │
+│     Insiden dicatat ke log & ke Wazuh       │
 │                    ↓                        │
 │  4. RECOVER (SOAR)                          │
 │     Setelah 600 detik                       │
@@ -711,7 +768,8 @@ watch -n2 "sudo du -sh /var/ossec/logs/alerts/ && echo '---' && sudo wc -l /var/
 |-------------|-------------|--------|
 | SIEM Framework (Wazuh) | Manager + 2 Agent di Azure | Done |
 | SOAR — Automated Detection | Rule 100200 trigger otomatis | Done |
-| SOAR — Automated Mitigation | ddos-mitigation.sh auto-block | Done |
+| SOAR — Automated Mitigation (lokal) | ddos-mitigation.sh auto-block | Done |
+| SOAR — Cloud Orchestration | Workflow Shuffler.io (webhook → mitigation API → record ke Wazuh) | Done |
 | DDoS HTTP Flood Simulation | ab flood 10.0.0.5 → 10.0.0.6 | Done |
 | Anomali traffic detection | Spike 1.228 → 3.072 req/jam | Done |
 | Critical alerts generation | 3,309 level 12 CRITICAL | Done |
@@ -720,15 +778,16 @@ watch -n2 "sudo du -sh /var/ossec/logs/alerts/ && echo '---' && sudo wc -l /var/
 
 ### Kesimpulan
 
-Integrasi **Wazuh SIEM + SOAR** terbukti efektif:
+Integrasi **Wazuh SIEM + SOAR (Active Response + Shuffler.io)** terbukti efektif:
 
 1. **SIEM** — Mendeteksi DDoS dalam hitungan detik via nginx log
-2. **SOAR** — Otomatis block IP penyerang tanpa intervensi manusia
-3. **Traffic analysis** — Spike 1.228 → 3.072 req/jam (naik 2.5x)
-4. **Critical alerts** — 3,309 level 12 CRITICAL alerts
-5. **Auto-recovery** — IP otomatis di-unblock setelah 10 menit
-6. **Log management** — 14,596 events terkelola efisien
-7. **Zero manual intervention** — Seluruh proses deteksi hingga mitigasi berjalan otomatis
+2. **SOAR lokal** — Otomatis block IP penyerang tanpa intervensi manusia
+3. **SOAR cloud** — Workflow Shuffler.io mengevaluasi whitelist & threshold sebelum memanggil mitigation API dan mencatat hasilnya ke Wazuh
+4. **Traffic analysis** — Spike 1.228 → 3.072 req/jam (naik 2.5x)
+5. **Critical alerts** — 3,309 level 12 CRITICAL alerts
+6. **Auto-recovery** — IP otomatis di-unblock setelah 10 menit
+7. **Log management** — 14,596 events terkelola efisien
+8. **Zero manual intervention** — Seluruh proses deteksi hingga mitigasi berjalan otomatis
 
 ---
 
@@ -737,6 +796,7 @@ Integrasi **Wazuh SIEM + SOAR** terbukti efektif:
 - [Wazuh Official Documentation](https://documentation.wazuh.com)
 - [Wazuh Active Response (SOAR)](https://documentation.wazuh.com/current/user-manual/capabilities/active-response)
 - [Wazuh 4.7 Installation Guide](https://documentation.wazuh.com/4.7/installation-guide)
+- [Shuffler.io Documentation](https://shuffler.io/docs)
 - [ApacheBench Documentation](https://httpd.apache.org/docs/2.4/programs/ab.html)
 - [MITRE ATT&CK Framework](https://attack.mitre.org)
 - [Azure for Students](https://azure.microsoft.com/free/students)
@@ -744,5 +804,5 @@ Integrasi **Wazuh SIEM + SOAR** terbukti efektif:
 
 ---
 
-*Tugas Keamanan Jaringan — Institut Teknologi Sepuluh Nopember (ITS) 2026*  
-*Last updated: 19 Mei 2026*
+*Tugas Keamanan Jaringan — Institut Teknologi Sepuluh Nopember (ITS) 2026*
+*Last updated: 24 Juni 2026*
