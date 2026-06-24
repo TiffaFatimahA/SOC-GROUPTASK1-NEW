@@ -9,7 +9,7 @@
 | Nama | NRP | Peran |
 |------|-----|-------|
 | Tiara Fatimah Azzahra | 5027241090 | Manager Admin (Wazuh Manager) |
-|                          | Agent Operator 1 (vm-agent-1) — Attacker |
+| Agent Operator 1 (vm-agent-1) — Attacker |
 | Diva Aulia Rosa | [NRP] | Agent Operator 2 (vm-agent-02) — Korban |
 
 ---
